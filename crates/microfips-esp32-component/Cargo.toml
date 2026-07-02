@@ -1,0 +1,53 @@
+[package]
+name = "microfips-esp32-component"
+version = "0.1.0"
+edition = "2021"
+description = "Single-dependency ESP32 import for the microfips FIPS leaf node (wraps microfips-esp32 / microfips-esp32s3)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Amperstrand/microfips"
+keywords = ["fips", "esp32", "esp32s3", "no_std", "embassy"]
+categories = ["embedded", "hardware-support", "network-programming"]
+# No default chip target — the consumer MUST pick exactly one of `esp32` / `esp32s3`.
+# This keeps the wrapper a single dependency while remaining target-explicit.
+
+[lib]
+name = "microfips_esp32_component"
+# This is a no_std firmware library consumed only under an Xtensa/RISC-V ESP target.
+# It re-exports the chip-specific run functions and the underlying protocol API.
+
+[features]
+default = []
+
+# --- Chip selection (mutually exclusive; enforced by compile_error! in lib.rs) ---
+# Each pulls in the matching per-chip crate, which in turn selects the right
+# esp-hal / esp-radio / esp-rtos features and the correct esp-transport chip feature.
+esp32   = ["dep:microfips-esp32"]
+esp32s3 = ["dep:microfips-esp32s3"]
+
+# --- Transport selection (passed through to the active per-chip crate) ---
+# `uart` needs no feature — it is always available on both chips.
+ble   = ["microfips-esp32?/ble",   "microfips-esp32s3?/ble"]
+l2cap = ["microfips-esp32?/l2cap", "microfips-esp32s3?/l2cap"]
+wifi  = ["microfips-esp32?/wifi",  "microfips-esp32s3?/wifi"]
+
+# --- Optional: re-export the higher-level service layer for app authors ---
+service = ["dep:microfips-service"]
+
+[dependencies]
+# Path deps for in-workspace development. At publish time `cargo release` rewrites
+# these to version requirements (e.g. `microfips-esp32 = "0.1"`) so the crate is a
+# true single-dependency pull from crates.io.
+microfips-core    = { path = "../microfips-core" }
+microfips-protocol = { path = "../microfips-protocol" }
+microfips-service = { path = "../microfips-service", optional = true }
+
+# Chip crates are optional + target-gated. The `?` weak feature syntax in the
+# transport features above means enabling `ble` only activates the chip crate
+# that is actually selected, not both.
+microfips-esp32   = { path = "../microfips-esp32",   optional = true }
+microfips-esp32s3 = { path = "../microfips-esp32s3", optional = true }
+
+[package.metadata.docs.rs]
+# docs.rs builds on a host target where esp-hal does not compile, so default to
+# no chip feature and let rustdoc render the re-export surface only.
+no-default-features = true

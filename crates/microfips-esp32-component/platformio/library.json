@@ -1,0 +1,15 @@
+{
+  "name": "microfips-esp32",
+  "version": "0.1.0",
+  "description": "FIPS leaf-node firmware for ESP32 / ESP32-S3, built and flashed from PlatformIO. A complete no_std Rust binary (Noise-handshaked, embassy); configure chip + transport with build flags. C-ABI interop is a future extension — the recommended path today is the pure-cargo crate.",
+  "keywords": ["fips", "esp32", "esp32s3", "rust", "embassy", "no_std", "noise", "ble", "l2cap", "wifi"],
+  "repository": { "type": "git", "url": "https://github.com/Amperstrand/microfips" },
+  "authors": [{ "name": "Amperstrand", "url": "https://github.com/Amperstrand" }],
+  "license": "MIT OR Apache-2.0",
+  "frameworks": ["espidf", "arduino"],
+  "platforms": ["espressif32"],
+  "examples": ["examples/*"],
+  "build": {
+    "extraScripts": "scripts/build_rust.py"
+  }
+}

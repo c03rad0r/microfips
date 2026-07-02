@@ -1,0 +1,8 @@
+# ESP32 (D0WD) target config — mirrors the microfips workspace's .cargo/config.toml.
+[target.xtensa-esp32-none-elf]
+runner = "espflash flash --monitor -p /dev/ttyUSB0 --chip esp32"
+rustflags = ["-C", "link-arg=-Tlinkall.x"]
+
+[env]
+TROUBLE_HOST_DEFAULT_PACKET_POOL_MTU = "2048"
+TROUBLE_HOST_DEFAULT_PACKET_POOL_SIZE = "4"

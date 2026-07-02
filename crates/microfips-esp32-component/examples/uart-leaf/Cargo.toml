@@ -1,0 +1,31 @@
+[package]
+name = "uart-leaf"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "uart-leaf"
+path = "src/main.rs"
+
+[dependencies]
+microfips-esp32-component = { path = "../../", features = ["esp32"] }
+# Bring in the ESP runtime the same way the in-tree firmware bins do.
+esp-hal = { version = "1.1.0", features = ["esp32", "unstable"] }
+esp-rtos = { version = "0.3.0", features = ["esp32", "embassy", "esp-alloc", "esp-radio"] }
+esp-bootloader-esp-idf = { version = "0.5", features = ["esp32"] }
+embassy-executor = "0.10"
+
+# --- local dev: use the in-tree microfips crates instead of crates.io ---------
+# (Paths are relative to this example's location INSIDE the repo:
+#  crates/microfips-esp32-component/examples/uart-leaf/. Delete this whole
+#  [patch] block once microfips-* are published to crates.io; then the single
+#  `microfips-esp32-component` dependency above pulls everything from crates.io.)
+[patch.crates-io]
+microfips-core          = { path = "../../../microfips-core" }
+microfips-protocol      = { path = "../../../microfips-protocol" }
+microfips-service       = { path = "../../../microfips-service" }
+microfips-esp-common    = { path = "../../../microfips-esp-common" }
+microfips-esp-transport = { path = "../../../microfips-esp-transport" }
+microfips-esp32         = { path = "../../../microfips-esp32" }
+microfips-esp32s3       = { path = "../../../microfips-esp32s3" }

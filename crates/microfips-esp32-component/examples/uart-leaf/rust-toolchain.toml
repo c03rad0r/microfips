@@ -1,0 +1,6 @@
+[toolchain]
+channel = "nightly"
+components = ["rust-src"]
+# Xtensa needs the `esp` toolchain (espup). RISC-V ESP32-Cx use stock nightly.
+targets = ["xtensa-esp32-none-elf"]
+profile = "minimal"

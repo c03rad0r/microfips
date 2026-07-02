@@ -1,0 +1,19 @@
+# ESP-IDF Component Manager manifest.
+# Install with:  idf.py add-dependency "amperstrand/microfips-esp32^0.1.0"
+# (after publishing to the ESP Component Registry; for local dev use path deps.)
+version: "0.1.0"
+description: >-
+  FIPS leaf-node firmware for ESP32 / ESP32-S3, built from Rust (Noise-handshaked,
+  no_std, embassy). Exposes a CMake function microfips_esp32_firmware() that
+  builds the firmware image via cargo for the active target. C-ABI interop is a
+  future extension; the recommended path today is the pure-cargo crate.
+url: https://github.com/Amperstrand/microfips
+targets:
+  - esp32
+  - esp32s3
+tags:
+  - rust
+  - networking
+  - ble
+  - wifi
+license: "MIT OR Apache-2.0"
