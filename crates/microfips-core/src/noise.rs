@@ -965,6 +965,7 @@ impl NoiseXkResponder {
 //   msg3: initiator reveals static to responder
 
 /// Noise XX Initiator for both link-layer (FMP) and session-layer (FSP).
+#[derive(Clone)]
 pub struct NoiseXxInitiator {
     h: [u8; 32],
     ck: [u8; 32],

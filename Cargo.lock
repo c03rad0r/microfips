@@ -2236,6 +2236,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "microfips-esp32-component"
+version = "0.1.0"
+dependencies = [
+ "microfips-core",
+ "microfips-esp32",
+ "microfips-esp32s3",
+ "microfips-protocol",
+ "microfips-service",
+]
+
+[[package]]
 name = "microfips-esp32s3"
 version = "0.1.0"
 dependencies = [

@@ -400,15 +400,16 @@ impl<T: Transport, R: RngCore + CryptoRng> Node<T, R> {
         let my_pub = noise::ecdh_pubkey(&self.nsec)?;
         let my_x_only: [u8; 32] = my_pub[1..33].try_into().unwrap();
         let my_addr = NodeAddr::from_pubkey_x(&my_x_only);
-        let peer_x_only: [u8; 32] = self.peer_npub[1..33].try_into().unwrap();
-        let peer_addr = NodeAddr::from_pubkey_x(&peer_x_only);
+        let _peer_x_only: [u8; 32] = self.peer_npub[1..33].try_into().unwrap();
+        let _peer_addr = NodeAddr::from_pubkey_x(&_peer_x_only);
 
         let initiator_eph = self.generate_valid_eph();
-        let (mut noise_st, _e_pub) =
-            noise::NoiseIkInitiator::new(&initiator_eph, &self.nsec, &self.peer_npub)?;
+        let (mut noise_st, e_pub) =
+            noise::NoiseXxInitiator::new(&initiator_eph, &self.nsec)?;
 
+        // XX msg1: just ephemeral pubkey (33 bytes), no DH, no encrypted static
         let mut n1 = [0u8; 256];
-        let n1len = noise_st.write_message1(&my_pub, &epoch, &mut n1)?;
+        let n1len = noise_st.write_message1(&mut n1)?;
 
         let our_index = self.allocate_session_index();
         let mut f1 = [0u8; 256];
@@ -426,134 +427,222 @@ impl<T: Transport, R: RngCore + CryptoRng> Node<T, R> {
         let mut mb = [0u8; MAX_FRAME_SIZE];
         let mut competing_msg1_count: u32 = 0;
         let mut resend_count: u32 = 0;
+
+        // Responder state — populated when we switch to responder role
+        let mut noise_resp: Option<noise::NoiseXxResponder> = None;
+        let mut msg2_buf = [0u8; 256];
+        let mut msg2_len: usize = 0;
+
         loop {
             let recv_timeout_ms = self.current_handshake_resend_timeout_ms(resend_count);
             match self.recv_frame(&mut mb, recv_timeout_ms).await {
                 Ok(ml) => {
                     resend_count = 0;
                     let m = wire::parse_message(&mb[..ml]).ok_or(ProtocolError::InvalidMessage)?;
-                    match m {
-                        wire::FmpMessage::Msg2 {
-                            sender_idx,
-                            noise_payload,
-                            ..
-                        } => {
-                            let mut st = noise_st.clone();
-                            st.read_message2(noise_payload)?;
-                            let (ks, kr) = st.finalize();
-                            return Ok((ks, kr, sender_idx));
+
+                    if noise_resp.is_none() {
+                        // ── INITIATOR PHASE: waiting for MSG2 or competing MSG1 ──
+                        match m {
+                            wire::FmpMessage::Msg2 {
+                                sender_idx,
+                                noise_payload,
+                                ..
+                            } => {
+                                // Trial-decrypt MSG2 on a clone — preserve state for retries
+                                let mut st = noise_st.clone();
+                                match st.read_message2(noise_payload) {
+                                    Ok((resp_static_pub, _resp_epoch)) => {
+                                        // Verify responder identity (XX: static key learned from MSG2)
+                                        let from_configured_peer =
+                                            resp_static_pub[1..33] == self.peer_npub[1..33];
+                                        #[cfg(feature = "log")]
+                                        log::info!(
+                                            "handshake: MSG2 from_configured_peer={} prefix_resp=0x{:02x}",
+                                            from_configured_peer,
+                                            resp_static_pub[0]
+                                        );
+                                        if !from_configured_peer {
+                                            continue;
+                                        }
+
+                                        // Commit the advanced state
+                                        noise_st = st;
+
+                                        // Build and send MSG3: encrypted static + epoch (73B)
+                                        let mut n3 = [0u8; 256];
+                                        let n3len = noise_st
+                                            .write_message3(&my_pub, &epoch, &mut n3)?;
+
+                                        let our_index3 = self.allocate_session_index();
+                                        let mut f3 = [0u8; 256];
+                                        let f3len = wire::build_msg3(
+                                            our_index3,
+                                            sender_idx,
+                                            &n3[..n3len],
+                                            &mut f3,
+                                        )
+                                        .ok_or(ProtocolError::InvalidFrame)?;
+                                        self.send_frame(&f3[..f3len]).await?;
+
+                                        let (ks, kr) = noise_st.finalize();
+                                        return Ok((ks, kr, sender_idx));
+                                    }
+                                    Err(_e) => {
+                                        #[cfg(feature = "log")]
+                                        log::warn!(
+                                            "handshake: MSG2 decryption failed, ignoring"
+                                        );
+                                        continue;
+                                    }
+                                }
+                            }
+                            wire::FmpMessage::Msg1 {
+                                sender_idx: peer_sender_idx,
+                                noise_payload,
+                            } => {
+                                // Competing MSG1 or peer_sent_first path.
+                                // In XX, MSG1 carries only the ephemeral key (no identity).
+                                if noise_payload.len() < noise::PUBKEY_SIZE {
+                                    #[cfg(feature = "log")]
+                                    log::warn!(
+                                        "handshake: MSG1 noise payload too short ({})",
+                                        noise_payload.len()
+                                    );
+                                    return Err(ProtocolError::InvalidMessage);
+                                }
+
+                                let peer_e_pub: [u8; noise::PUBKEY_SIZE] = noise_payload
+                                    [..noise::PUBKEY_SIZE]
+                                    .try_into()
+                                    .map_err(|_| ProtocolError::InvalidMessage)?;
+
+                                // Decision: become responder or yield.
+                                // - peer_sent_first → we are the responder
+                                // - simultaneous open → lower ephemeral key becomes responder
+                                let become_responder = if self.peer_sent_first {
+                                    true
+                                } else {
+                                    e_pub[..] < peer_e_pub[..]
+                                };
+
+                                if become_responder {
+                                    #[cfg(feature = "log")]
+                                    log::info!(
+                                        "handshake: becoming XX responder (peer_sent_first={})",
+                                        self.peer_sent_first
+                                    );
+
+                                    let mut resp = noise::NoiseXxResponder::new(&self.nsec)?;
+                                    resp.read_message1(noise_payload)?;
+
+                                    let mut resp_eph = self.generate_valid_eph();
+                                    while resp_eph == initiator_eph {
+                                        resp_eph = self.generate_valid_eph();
+                                    }
+
+                                    let mut msg2_noise = [0u8; 256];
+                                    let msg2_noise_len = match resp.write_message2(
+                                        &resp_eph,
+                                        &epoch,
+                                        &mut msg2_noise,
+                                    ) {
+                                        Ok(n) => n,
+                                        Err(_e) => {
+                                            #[cfg(feature = "log")]
+                                            log::error!(
+                                                "handshake: write_message2 failed: {:?}",
+                                                _e
+                                            );
+                                            return Err(ProtocolError::DecryptFailed);
+                                        }
+                                    };
+
+                                    let resp_idx = self.allocate_session_index();
+                                    msg2_len = wire::build_msg2(
+                                        resp_idx,
+                                        peer_sender_idx,
+                                        &msg2_noise[..msg2_noise_len],
+                                        &mut msg2_buf,
+                                    )
+                                    .ok_or(ProtocolError::InvalidMessage)?;
+                                    self.send_frame(&msg2_buf[..msg2_len]).await?;
+
+                                    noise_resp = Some(resp);
+                                    // Loop continues → now waiting for MSG3
+                                } else {
+                                    // Yield: our ephemeral is higher, keep waiting for MSG2
+                                    competing_msg1_count += 1;
+                                    if competing_msg1_count > MAX_COMPETING_MSG1 {
+                                        return Err(ProtocolError::Timeout);
+                                    }
+                                    continue;
+                                }
+                            }
+                            _ => continue,
                         }
-                        wire::FmpMessage::Msg1 {
-                            sender_idx: peer_sender_idx,
-                            noise_payload,
-                        } => {
-                            if my_addr.as_bytes() == peer_addr.as_bytes() {
-                                #[cfg(feature = "log")]
-                                log::warn!("handshake: self-connection detected, aborting");
-                                return Err(ProtocolError::InvalidMessage);
-                            }
-
-                            if noise_payload.len() < noise::PUBKEY_SIZE {
-                                #[cfg(feature = "log")]
-                                log::warn!(
-                                    "handshake: MSG1 noise payload too short ({})",
-                                    noise_payload.len()
-                                );
-                                return Err(ProtocolError::InvalidMessage);
-                            }
-
-                            let peer_e_pub: [u8; noise::PUBKEY_SIZE] = noise_payload
-                                [..noise::PUBKEY_SIZE]
-                                .try_into()
-                                .map_err(|_| ProtocolError::InvalidMessage)?;
-
-                            let mut responder =
-                                match noise::NoiseIkResponder::new(&self.nsec, &peer_e_pub) {
-                                    Ok(r) => r,
+                    } else {
+                        // ── RESPONDER PHASE: waiting for MSG3 ──
+                        match m {
+                            wire::FmpMessage::Msg3 {
+                                sender_idx,
+                                noise_payload,
+                                ..
+                            } => {
+                                let resp = noise_resp.as_mut().unwrap();
+                                let (initiator_static_pub, _init_epoch) = match resp
+                                    .read_message3(noise_payload)
+                                {
+                                    Ok(v) => v,
                                     Err(_e) => {
                                         #[cfg(feature = "log")]
                                         log::error!(
-                                            "handshake: NoiseIkResponder::new failed: {:?}",
+                                            "handshake: read_message3 failed: {:?}",
                                             _e
                                         );
-                                        return Err(ProtocolError::InvalidMessage);
+                                        return Err(ProtocolError::DecryptFailed);
                                     }
                                 };
 
-                            let (initiator_static_pub, epoch) = match responder
-                                .read_message1(&noise_payload[noise::PUBKEY_SIZE..])
-                            {
-                                Ok(v) => v,
-                                Err(_e) => {
+                                // XX: identity is only revealed in MSG3
+                                let from_configured_peer =
+                                    initiator_static_pub[1..33] == self.peer_npub[1..33];
+
+                                // Self-connection check (was at MSG1 time in IK, now at MSG3 in XX)
+                                let init_x_only: [u8; 32] =
+                                    initiator_static_pub[1..33].try_into().unwrap();
+                                let init_addr = NodeAddr::from_pubkey_x(&init_x_only);
+                                if my_addr.as_bytes() == init_addr.as_bytes() {
                                     #[cfg(feature = "log")]
-                                    log::error!("handshake: read_message1 failed: {:?}", _e);
+                                    log::warn!(
+                                        "handshake: self-connection detected (MSG3), aborting"
+                                    );
                                     return Err(ProtocolError::InvalidMessage);
                                 }
-                            };
 
-                            // Compare x-only bytes only (1..33). The prefix byte may differ:
-                            // peer_pub is constructed with 0x02 from x-only exchange data,
-                            // but the Noise-decrypted initiator_static_pub has the actual
-                            // compressed pubkey prefix (0x02 or 0x03 depending on y-parity).
-                            // Both represent the same key — only the x-coordinate matters.
-                            let from_configured_peer =
-                                initiator_static_pub[1..33] == self.peer_npub[1..33];
-                            #[cfg(feature = "log")]
-                            {
-                                log::info!("handshake: from_configured_peer={} peer_sent_first={} prefix_initiator=0x{:02x} prefix_peer=0x{:02x}",
-                                    from_configured_peer, self.peer_sent_first,
-                                    initiator_static_pub[0], self.peer_npub[0]);
-                            }
-
-                            if from_configured_peer
-                                && !self.peer_sent_first
-                                && my_addr.as_bytes() < peer_addr.as_bytes()
-                            {
-                                continue;
-                            }
-
-                            if !from_configured_peer {
-                                competing_msg1_count += 1;
-                                if competing_msg1_count > MAX_COMPETING_MSG1 {
-                                    return Err(ProtocolError::Timeout);
+                                #[cfg(feature = "log")]
+                                {
+                                    log::info!(
+                                        "handshake: MSG3 from_configured_peer={} prefix_initiator=0x{:02x} prefix_peer=0x{:02x}",
+                                        from_configured_peer,
+                                        initiator_static_pub[0],
+                                        self.peer_npub[0]
+                                    );
                                 }
-                                continue;
-                            }
 
-                            let mut resp_eph = self.generate_valid_eph();
-                            while resp_eph == initiator_eph {
-                                resp_eph = self.generate_valid_eph();
-                            }
-
-                            let mut msg2_noise = [0u8; 128];
-                            let msg2_noise_len = match responder.write_message2(
-                                &resp_eph,
-                                &epoch,
-                                &mut msg2_noise,
-                            ) {
-                                Ok(n) => n,
-                                Err(_e) => {
-                                    #[cfg(feature = "log")]
-                                    log::error!("handshake: write_message2 failed: {:?}", _e);
-                                    return Err(ProtocolError::DecryptFailed);
+                                if !from_configured_peer {
+                                    competing_msg1_count += 1;
+                                    if competing_msg1_count > MAX_COMPETING_MSG1 {
+                                        return Err(ProtocolError::Timeout);
+                                    }
+                                    continue;
                                 }
-                            };
 
-                            let our_index = self.allocate_session_index();
-                            let mut msg2_buf = [0u8; 256];
-                            let msg2_len = wire::build_msg2(
-                                our_index,
-                                peer_sender_idx,
-                                &msg2_noise[..msg2_noise_len],
-                                &mut msg2_buf,
-                            )
-                            .ok_or(ProtocolError::InvalidMessage)?;
-                            self.send_frame(&msg2_buf[..msg2_len]).await?;
-
-                            let (k1, k2) = responder.finalize();
-                            return Ok((k2, k1, peer_sender_idx));
+                                let (k1, k2) = resp.finalize();
+                                // Responder: send with k2 (resp→init), recv with k1 (init→resp)
+                                return Ok((k2, k1, sender_idx));
+                            }
+                            _ => continue,
                         }
-                        _ => continue,
                     }
                 }
                 Err(ProtocolError::Timeout) => {
@@ -561,8 +650,14 @@ impl<T: Transport, R: RngCore + CryptoRng> Node<T, R> {
                     if resend_count > self.timing.handshake_max_resends {
                         return Err(ProtocolError::Timeout);
                     }
-                    if !self.peer_sent_first {
-                        self.send_frame(&f1[..f1len]).await?;
+                    if noise_resp.is_none() {
+                        // Initiator: resend MSG1
+                        if !self.peer_sent_first {
+                            self.send_frame(&f1[..f1len]).await?;
+                        }
+                    } else {
+                        // Responder: resend MSG2
+                        self.send_frame(&msg2_buf[..msg2_len]).await?;
                     }
                 }
                 Err(e) => return Err(e),
@@ -1418,7 +1513,7 @@ enum FrameAction {
 
 /// Determine the total wire size of a raw FMP frame from its 4-byte common prefix.
 ///
-/// For MSG1/MSG2, uses the fixed wire sizes (114/69 bytes).
+/// For MSG1/MSG2/MSG3, uses the fixed wire sizes (41/118/85 bytes for Noise XX).
 /// For established frames, returns `None` — the caller must use the full
 /// available buffer as one frame (UDP datagram boundary).
 ///
@@ -1445,6 +1540,14 @@ fn fmp_raw_frame_size(data: &[u8]) -> Option<usize> {
         }
         wire::PHASE_MSG2 => {
             let total = wire::MSG2_WIRE_SIZE;
+            if data.len() < total {
+                None
+            } else {
+                Some(total)
+            }
+        }
+        wire::PHASE_MSG3 => {
+            let total = wire::MSG3_WIRE_SIZE;
             if data.len() < total {
                 None
             } else {
@@ -2363,7 +2466,7 @@ mod tests {
                             wire::SessionIndex::new(0),
                             "initiator sender_idx should be random non-zero"
                         );
-                        assert_eq!(noise_payload.len(), 106);
+                        assert_eq!(noise_payload.len(), 33);
                     }
                     _ => panic!("expected Msg1"),
                 }
@@ -3028,14 +3131,15 @@ mod tests {
     #[test]
     fn test_extract_raw_frame_msg2_mid_buffer() {
         use microfips_core::wire;
-        let prefix = wire::build_prefix(wire::PHASE_MSG2, 0x00, 65);
-        let mut buf = [0u8; 128];
+        // XX MSG2: 4 prefix + 8 idx + 106 noise = 118 bytes total
+        let prefix = wire::build_prefix(wire::PHASE_MSG2, 0x00, 114);
+        let mut buf = [0u8; 256];
         buf[10..14].copy_from_slice(&prefix);
-        buf[14..14 + 65].fill(0xCC);
-        let (frame, pos) = extract_raw_frame(&buf, 10, 79).unwrap();
-        assert_eq!(frame.len(), 69);
+        buf[14..14 + 114].fill(0xCC);
+        let (frame, pos) = extract_raw_frame(&buf, 10, 128).unwrap();
+        assert_eq!(frame.len(), wire::MSG2_WIRE_SIZE);
         assert_eq!(frame[..4], prefix);
-        assert_eq!(pos, 79);
+        assert_eq!(pos, 128);
     }
 
     #[test]
