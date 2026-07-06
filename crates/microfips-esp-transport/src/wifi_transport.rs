@@ -3,6 +3,7 @@ use embassy_net::{Config, IpAddress, IpEndpoint, Runner, StackResources};
 use embassy_time::{with_timeout, Duration, Timer};
 use esp_hal::peripherals::WIFI;
 use esp_hal::rng::Trng;
+use esp_radio::wifi::scan::ScanConfig;
 use esp_radio::wifi::sta::StationConfig;
 use esp_radio::wifi::{Config as WifiConfig, Interface, WifiController};
 use microfips_esp_common::config::{VPS_HOST, VPS_PORT, WIFI_DHCP_TIMEOUT_SECS};
@@ -84,17 +85,26 @@ pub async fn build_wifi_transport(
 
     let station_config = StationConfig::default()
         .with_ssid(wifi_ssid)
-        .with_password(alloc::string::String::from(wifi_password));
+        .with_password(alloc::string::String::from(wifi_password))
+        .with_auth_method(esp_radio::wifi::AuthenticationMethod::Wpa2Personal);
     wifi_controller
         .set_config(&WifiConfig::Station(station_config))
         .expect("set wifi station config");
 
-    Timer::after(Duration::from_secs(2)).await;
+    Timer::after(Duration::from_secs(5)).await;
+    // Pre-scan to warm up the radio — use minimal config
+    esp_println::println!("[microFIPS] Scanning for WiFi...");
+    match wifi_controller.scan_async(&ScanConfig::default()).await {
+        Ok(results) => esp_println::println!("[microFIPS] Scan: found {} APs", results.len()),
+        Err(_) => esp_println::println!("[microFIPS] Scan: no results"),
+    }
+    Timer::after(Duration::from_secs(1)).await;
+
     let (_, vps_ip) = {
         let mut retry = 0u32;
         loop {
             let init_result: Result<_, WifiInitError> = match with_timeout(
-                Duration::from_secs(30),
+                Duration::from_secs(60),
                 wifi_controller.connect_async(),
             )
             .await

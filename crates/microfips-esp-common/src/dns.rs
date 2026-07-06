@@ -136,6 +136,8 @@ pub async fn resolve_vps_ipv4(
 ) -> Result<Ipv4Address, DnsResolveError> {
     // If host is already an IPv4 address literal, skip DNS entirely
     if let Ok(ip) = host.parse::<Ipv4Address>() {
+        #[cfg(feature = "log")]
+        log::info!("DNS: host is IP literal {}, skipping DNS lookup", ip);
         return Ok(ip);
     }
 
