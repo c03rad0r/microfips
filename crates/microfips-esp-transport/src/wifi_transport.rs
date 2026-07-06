@@ -56,7 +56,7 @@ pub async fn build_wifi_transport(
     crate::heap::init();
 
     const MAX_WIFI_RETRIES: u32 = 5;
-    const WIFI_RETRY_BASE_SECS: u64 = 5;
+    const WIFI_RETRY_BASE_SECS: u64 = 30;
 
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
     static RX_META: StaticCell<[PacketMetadata; 4]> = StaticCell::new();
@@ -92,13 +92,6 @@ pub async fn build_wifi_transport(
         .expect("set wifi station config");
 
     Timer::after(Duration::from_secs(5)).await;
-    // Pre-scan to warm up the radio — use minimal config
-    esp_println::println!("[microFIPS] Scanning for WiFi...");
-    match wifi_controller.scan_async(&ScanConfig::default()).await {
-        Ok(results) => esp_println::println!("[microFIPS] Scan: found {} APs", results.len()),
-        Err(_) => esp_println::println!("[microFIPS] Scan: no results"),
-    }
-    Timer::after(Duration::from_secs(1)).await;
 
     let (_, vps_ip) = {
         let mut retry = 0u32;
