@@ -1,4 +1,4 @@
-//! Shared ESP32 transport implementations: UART, USB CDC, BLE GATT, BLE L2CAP, WiFi, and common hardware abstractions.
+//! Shared ESP32 transport implementations: UART, USB CDC, BLE GATT, BLE L2CAP, WiFi, ESP-NOW, and common hardware abstractions.
 
 #![no_std]
 
@@ -30,9 +30,12 @@ pub mod usb_transport;
 #[cfg(feature = "wifi")]
 pub mod wifi_transport;
 
-#[cfg(any(feature = "ble", feature = "l2cap", feature = "wifi"))]
+#[cfg(feature = "espnow")]
+pub mod esp_now_transport;
+
+#[cfg(any(feature = "ble", feature = "l2cap", feature = "wifi", feature = "espnow"))]
 pub mod control;
-#[cfg(any(feature = "ble", feature = "l2cap", feature = "wifi"))]
+#[cfg(any(feature = "ble", feature = "l2cap", feature = "wifi", feature = "espnow"))]
 pub mod logger;
 
 #[cfg(feature = "ble")]

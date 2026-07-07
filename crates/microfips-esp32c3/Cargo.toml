@@ -10,11 +10,17 @@ name = "microfips_esp32c3"
 [features]
 default = ["wifi"]
 wifi = ["dep:esp-radio", "dep:esp-println", "dep:log", "microfips-esp-transport/wifi"]
+espnow = ["microfips-esp-transport/espnow"]
 
 [[bin]]
 name = "microfips-esp32c3-wifi"
 path = "src/bin/wifi.rs"
 required-features = ["wifi"]
+
+[[bin]]
+name = "microfips-esp32c3-espnow"
+path = "src/bin/espnow.rs"
+required-features = ["espnow"]
 
 [[bin]]
 name = "microfips-esp32c3-uart"
