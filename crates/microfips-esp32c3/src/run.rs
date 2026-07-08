@@ -49,6 +49,7 @@ pub use microfips_esp_transport::run_tasks::run_wifi_node;
 
 #[cfg(feature = "espnow")]
 pub async fn run_espnow_node(
+    spawner: embassy_executor::Spawner,
     gpio2: esp_hal::peripherals::GPIO2<'static>,
     rng_periph: esp_hal::peripherals::RNG<'static>,
     adc1: esp_hal::peripherals::ADC1<'static>,
@@ -56,6 +57,7 @@ pub async fn run_espnow_node(
     use microfips_esp_transport::esp_now_transport::{self, EspNowTransport, MacAddress};
     use microfips_esp_transport::logger;
     use microfips_esp_transport::runner;
+    use microfips_esp_transport::control::{self, init_control};
 
     #[cfg(feature = "log")]
     logger::init(log::LevelFilter::Info);
@@ -85,6 +87,17 @@ pub async fn run_espnow_node(
 
     #[cfg(feature = "log")]
     log::info!("ESP-NOW mesh node ready on channel {}", esp_now_transport::ESPNOW_CHANNEL);
+
+    // Initialize control interface
+    use microfips_esp_transport::node_info::NodeIdentity;
+    let identity = NodeIdentity {
+        node_addr_hex: VPS_NPUB,  // Use VPS_NPUB as node address for now
+        pubkey_hex: VPS_NPUB,      // Use same for pubkey
+    };
+    init_control(&identity, "esp-now");
+
+    // Start control task for UART CLI
+    spawner.spawn(control::control_task()).unwrap();
 
     // Run as a FIPS node using the existing runner
     runner::run_node(transport, trng_source, trng, &mut led, VPS_NPUB, NodeOpts::default()).await

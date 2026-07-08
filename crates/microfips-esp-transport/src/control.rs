@@ -1,12 +1,13 @@
-//! FIPS-compatible control interface for ESP32 BLE/L2CAP/WiFi firmware.
+//! FIPS-compatible control interface for ESP32 BLE/L2CAP/WiFi/ESP-NOW firmware.
 //! Reads line-delimited commands, responds with JSON.
 //!
 //! ESP32-D0WD: reads from UART0 RX via GPIO matrix (GPIO3).
 //! ESP32-S3: reads from USB Serial JTAG RX FIFO (GPIO44 goes through
 //! USB Serial JTAG, not UART0 — esp-println outputs via USB Serial JTAG ROM
 //! functions on S3, so control input must match).
+//! ESP32-C3: reads from USB Serial JTAG RX FIFO (same as S3).
 
-#![cfg(any(feature = "ble", feature = "l2cap", feature = "wifi"))]
+#![cfg(any(feature = "ble", feature = "l2cap", feature = "wifi", feature = "espnow"))]
 
 use core::ptr::{null_mut, read_volatile, write_volatile};
 use core::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
@@ -258,7 +259,7 @@ fn handle_show_stats() {
     let l2cap = crate::l2cap_host::l2cap_stats_snapshot();
     #[cfg(feature = "l2cap")]
     esp_println::println!(
-        r#"{{"status":"ok","data":{{"msg1_tx":{},"msg2_rx":{},"hb_tx":{},"hb_rx":{},"data_tx":{},"data_rx":{},"srtt_ms":{},"loss_permil":{},"goodput_kbps":{},"jitter_us":{},"l2cap_zero_frame_disconnects":{},"l2cap_recv_timeouts":{},"l2cap_send_timeouts":{},"l2cap_send_errors":{},"l2cap_rx_drops":{},"l2cap_pubkey_ok":{},"l2cap_central_connects":{},"l2cap_peripheral_connects":{},"l2cap_last_role":{},"l2cap_last_reason":{}}}}}"#,
+        r#"{{"status":"ok","data":{{"msg1_tx":{},"msg2_rx":{},"hb_tx":{},"hb_rx":{},"data_tx":{},"data_rx":{},"srtt_ms":{},"loss_permil":{},"goodput_kbps":{},"jitter_us":{},"l2cap_zero_frame_disconnects":{},"l2cap_recv_timeouts":{},"l2cap_send_timeouts":{},"l2cap_send_errors":{},"l2cap_rx_drops":{},"l2cap_pubkey_ok":{},"l2cap_central_connects":{},"l2cap_peripheral_connects":{},"l2cap_last_role":{},"l2cap_last_reason":{}}}}}}"#,
         msg1_tx,
         msg2_rx,
         hb_tx,
