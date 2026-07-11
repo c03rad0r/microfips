@@ -411,11 +411,15 @@ impl<T: Transport, R: RngCore + CryptoRng> Node<T, R> {
         let peer_addr = NodeAddr::from_pubkey_x(&peer_x_only);
 
         let initiator_eph = self.generate_valid_eph();
+        // Use Noise IK to match production FIPS (VPS1 rev 1dbfefc), which uses
+        // Noise IK for the link-layer handshake (MSG1=114B, MSG2=69B, 2-message).
+        // NoiseXxInitiator produces a 33B MSG1 (41B wire) which FIPS silently drops
+        // via strict size check: data.len() != MSG1_WIRE_SIZE (114).
         let (mut noise_st, _e_pub) =
-            noise::NoiseXxInitiator::new(&initiator_eph, &self.nsec)?;
+            noise::NoiseIkInitiator::new(&initiator_eph, &self.nsec, &self.peer_npub)?;
 
         let mut n1 = [0u8; 256];
-        let n1len = noise_st.write_message1(&mut n1)?;
+        let n1len = noise_st.write_message1(&my_pub, &epoch, &mut n1)?;
 
         let our_index = self.allocate_session_index();
         let mut f1 = [0u8; 256];
@@ -445,25 +449,14 @@ impl<T: Transport, R: RngCore + CryptoRng> Node<T, R> {
                             ..
                         } => {
                             let mut st = noise_st.clone();
-                            let (_resp_pub, _resp_epoch) = st
+                            // IK read_message2 returns just the epoch (responder
+                            // static key is known via IK pre-message, not in MSG2).
+                            let _resp_epoch = st
                                 .read_message2(noise_payload)
                                 .map_err(|_| ProtocolError::DecryptFailed)?;
 
-                            let mut n3 = [0u8; 128];
-                            let n3len = st
-                                .write_message3(&my_pub, &epoch, &mut n3)
-                                .map_err(|_| ProtocolError::DecryptFailed)?;
-                            let mut f3 = [0u8; 256];
-                            let f3len = wire::build_msg3(
-                                our_index,
-                                sender_idx,
-                                &n3[..n3len],
-                                &mut f3,
-                            )
-                            .ok_or(ProtocolError::InvalidFrame)?;
-                            self.send_frame(&f3[..f3len]).await?;
-
-                            // finalize() returns (c1, c2) = (init→resp, resp→init)
+                            // IK is a 2-message handshake: MSG1 + MSG2.
+                            // No MSG3 needed — finalize directly after MSG2.
                             let (c1, c2) = st.finalize();
                             return Ok((c1, c2, sender_idx));
                         }
