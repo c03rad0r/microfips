@@ -48,12 +48,14 @@ async fn net_task(mut runner: Runner<'static, Interface<'static>>) {
 
 pub async fn build_wifi_transport(
     spawner: embassy_executor::Spawner,
-    _wifi: WIFI<'static>,
+    wifi: WIFI<'static>,
     trng: &mut Trng,
     wifi_ssid: &str,
     wifi_password: &str,
 ) -> Result<WifiTransport, WifiInitError> {
     crate::heap::init();
+
+    const MAX_WIFI_RETRIES: u32 = 5;
 
     const MAX_WIFI_RETRIES: u32 = 5;
     const WIFI_RETRY_BASE_SECS: u64 = 30;
@@ -64,10 +66,6 @@ pub async fn build_wifi_transport(
     static TX_META: StaticCell<[PacketMetadata; 4]> = StaticCell::new();
     static TX_BUF: StaticCell<[u8; 2048]> = StaticCell::new();
 
-    // SAFETY: Peripherals::steal() is called once during WiFi transport initialization.
-    // The WIFI peripheral is not consumed by esp_hal::init() in the binary entry point —
-    // it is only needed here for the WiFi radio. No other code accesses WIFI.
-    let wifi = unsafe { esp_hal::peripherals::Peripherals::steal().WIFI };
     let (mut wifi_controller, interfaces) =
         esp_radio::wifi::new(wifi, Default::default())
             .expect("wifi::new failed");
