@@ -15,7 +15,7 @@ esp32c3 = ["esp-hal/esp32c3", "esp-radio/esp32c3", "esp-println/esp32c3", "esp-p
 log = ["dep:log"]
 ble = ["dep:esp-radio", "dep:trouble-host", "dep:bt-hci", "dep:embedded-io", "dep:esp-println", "log"]
 l2cap = ["dep:esp-radio", "dep:trouble-host", "dep:bt-hci", "dep:embedded-io", "dep:esp-println", "log"]
-wifi = ["dep:esp-radio", "dep:embassy-net", "dep:esp-println", "log"]
+wifi = ["dep:esp-radio", "dep:embassy-net", "dep:esp-println", "log", "microfips-esp-common/wifi"]
 espnow = ["dep:esp-println", "log"]
 
 [build-dependencies]
