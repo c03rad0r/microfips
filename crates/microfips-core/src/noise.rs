@@ -943,7 +943,8 @@ impl NoiseXkResponder {
         let mut k2 = [0u8; 32];
         k1.copy_from_slice(&okm[..32]);
         k2.copy_from_slice(&okm[32..]);
-        (k1, k2)
+        // Responder gets (k_recv, k_send) = (k2, k1) to match initiator's (k_send, k_recv)
+        (k2, k1)
     }
 }
 
