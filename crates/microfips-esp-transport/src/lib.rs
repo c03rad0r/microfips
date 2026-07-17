@@ -24,6 +24,9 @@ pub mod run_tasks;
 pub mod stats;
 pub mod uart_transport;
 
+/// LR2021 FLRC framing layer (hardware-agnostic, unit-testable).
+pub mod lr2021_framing;
+
 #[cfg(any(feature = "esp32s3", feature = "esp32c3"))]
 pub mod usb_transport;
 
