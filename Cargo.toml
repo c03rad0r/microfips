@@ -1,12 +1,25 @@
 [workspace]
-members = ["crates/microfips-build", "crates/microfips-core", "crates/microfips-protocol", "crates/microfips-esp-common", "crates/microfips-esp-transport", "crates/microfips-esp32c3"]
-# Temporarily disabled due to ESP32 feature conflicts:
-# "crates/microfips-esp32", "crates/microfips-esp32s3"
-# Host-only crates excluded — they enable std on shared deps (microfips-core/std),
-# which leaks to no_std ESP32 builds via workspace feature unification:
-# "crates/microfips-link", "crates/microfips-sim", "crates/microfips",
-# "crates/microfips-service", "crates/microfips-http-demo",
-# "crates/microfips-http-test", "crates/fips-decrypt", "crates/microfips-l2cap-test"
+# All members included for host-side testing.
+# For embedded cross-compile, use --package to target specific crates
+# or set up a filtered workspace (see docs/embedded-build.md).
+members = [
+    "crates/microfips-build",
+    "crates/microfips-core",
+    "crates/microfips-protocol",
+    "crates/microfips-esp-common",
+    "crates/microfips-esp-transport",
+    "crates/microfips-esp32",
+    "crates/microfips-esp32s3",
+    "crates/microfips-service",
+    "crates/microfips-http-demo",
+    "crates/microfips-http-test",
+    "crates/microfips-link",
+    "crates/microfips-sim",
+    "crates/microfips",
+    "crates/microfips-l2cap-test",
+    "crates/microfips-lr2021-test",
+    "crates/fips-decrypt",
+]
 resolver = "2"
 
 [workspace.metadata.esp32]
@@ -37,4 +50,4 @@ embassy-net = "0.9.0"
 trouble-host = { git = "https://github.com/embassy-rs/trouble", rev = "c103e97ff7d333c2cb76b643477e3c4141d0ff74", features = ["default-packet-pool", "scan", "central"] }
 microfips-build = { path = "crates/microfips-build" }
 critical-section = { version = "1.1.2", default-features = false }
-
+portable-atomic = { version = "1", default-features = false }

@@ -1,0 +1,30 @@
+[package]
+name = "microfips-lr2021-test"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone host-side test crate for LR2021 framing and mock transport (no esp-hal deps)"
+
+[dependencies]
+heapless = "0.9"
+bitflags = "2"
+
+[dependencies.microfips-protocol]
+path = "../microfips-protocol"
+features = ["std"]
+
+[dependencies.embassy-time]
+version = "0.5.1"
+features = ["std"]
+
+[dependencies.embassy-sync]
+version = "0.8"
+
+[dependencies.embassy-futures]
+version = "0.1.2"
+
+[dependencies.embassy-executor]
+version = "0.10"
+features = ["platform-std", "executor-thread"]
+
+[dev-dependencies]
+rand = "0.9"

@@ -27,6 +27,14 @@ pub mod uart_transport;
 /// LR2021 FLRC framing layer (hardware-agnostic, unit-testable).
 pub mod lr2021_framing;
 
+/// LR2021 SPI driver (trait + mock, hardware-agnostic).
+#[cfg(any(test, feature = "mock"))]
+pub mod lr2021_spi;
+
+/// LR2021 Transport trait adapter.
+#[cfg(any(test, feature = "mock"))]
+pub mod lr2021_transport;
+
 #[cfg(any(feature = "esp32s3", feature = "esp32c3"))]
 pub mod usb_transport;
 
